@@ -3,13 +3,13 @@ package libp2p
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	libp2p "github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/protocol"
-	multiaddr "github.com/multiformats/go-multiaddr"
 	"github.com/mutagen-io/mutagen/pkg/logging"
 	"github.com/mutagen-io/mutagen/pkg/synchronization"
 	"github.com/mutagen-io/mutagen/pkg/synchronization/endpoint/remote"
@@ -58,25 +58,28 @@ func (h *protocolHandler) Connect(
 		return nil, errors.New("Libp2p URL contains internal parameters")
 	}
 
-	p2pAddr, err := multiaddr.NewMultiaddr(url.Host)
+	addrInfo, err := peer.AddrInfoFromString(url.Host)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to get addr info from url host: %w", err)
 	}
 
-	addrInfo, err := peer.AddrInfoFromP2pAddr(p2pAddr)
+	host, err := libp2p.New(libp2p.Defaults,
+		libp2p.EnableHolePunching(),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to create libp2p host: %w", err)
 	}
 
-	host, err := libp2p.New(libp2p.Defaults)
+	err = host.Connect(ctx, *addrInfo)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to connect to url: %w", err)
 	}
-	host.Peerstore().AddAddrs(addrInfo.ID, addrInfo.Addrs, peerstore.PermanentAddrTTL)
+	logger.Infof("Connected to peer: %s", addrInfo)
 
+	ctx = network.WithUseTransient(ctx, "hole-punch")
 	stream, err := host.NewStream(ctx, addrInfo.ID, SynchronizationProtocol)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to create libp2p /mutagen/synchronization stream: %w", err)
 	}
 
 	// Create the endpoint client.
