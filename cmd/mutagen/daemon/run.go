@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -25,6 +26,8 @@ import (
 
 	libp2p "github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/peer"
+	circuitv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/docker"
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/local"
@@ -53,9 +56,8 @@ func runMain(_ *cobra.Command, _ []string) error {
 	host, err := libp2p.New(
 		libp2p.Defaults,
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"),
+		libp2p.EnableRelayService(),
 		libp2p.EnableHolePunching(),
-		libp2p.EnableAutoRelay(),
-		libp2p.DefaultStaticRelays(),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to start libp2p host: %w", err)
@@ -63,6 +65,27 @@ func runMain(_ *cobra.Command, _ []string) error {
 
 	for _, maddr := range host.Addrs() {
 		p2pAddr := fmt.Sprintf("%s/p2p/%s", maddr.String(), host.ID())
+		logging.RootLogger.Infof("Libp2p swarm listening on %s", p2pAddr)
+	}
+
+	relay, err := peer.AddrInfoFromString("/ip4/128.199.6.92/tcp/4001/p2p/12D3KooWGDynerXsf3KeXAQAp4RUpQKkusYYEjMq918czPxUXCRX")
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	err = host.Connect(ctx, *relay)
+	if err != nil {
+		return fmt.Errorf("unable to connect to relay: %w", err)
+	}
+
+	rsvp, err := circuitv2.Reserve(ctx, host, *relay)
+	if err != nil {
+		return fmt.Errorf("unable to reserve address on relay: %w", err)
+	}
+
+	for _, maddr := range rsvp.Addrs {
+		p2pAddr := fmt.Sprintf("%s/p2p-circuit/p2p/%s", maddr.String(), host.ID())
 		logging.RootLogger.Infof("Libp2p swarm listening on %s", p2pAddr)
 	}
 
