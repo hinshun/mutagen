@@ -14,6 +14,7 @@ import (
 
 	"github.com/mutagen-io/mutagen/pkg/daemon"
 	"github.com/mutagen-io/mutagen/pkg/forwarding"
+	forwardingremote "github.com/mutagen-io/mutagen/pkg/forwarding/endpoint/remote"
 	"github.com/mutagen-io/mutagen/pkg/grpcutil"
 	"github.com/mutagen-io/mutagen/pkg/ipc"
 	"github.com/mutagen-io/mutagen/pkg/logging"
@@ -30,10 +31,11 @@ import (
 	circuitv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/docker"
+	forwardinglibp2p "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/libp2p"
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/local"
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/ssh"
 	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/docker"
-	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/libp2p"
+	synchronizationlibp2p "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/libp2p"
 	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/local"
 	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/ssh"
 )
@@ -97,6 +99,13 @@ func runMain(_ *cobra.Command, _ []string) error {
 	}
 	defer forwardingManager.Shutdown()
 
+	host.SetStreamHandler(forwardinglibp2p.ForwardingProtocol, func(stream network.Stream) {
+		err := forwardingremote.ServeEndpoint(forwardingLogger, stream)
+		if err != nil {
+			forwardingLogger.Errorf("forwarding terminated: %w", err)
+		}
+	})
+
 	// Create a synchronization session manager and defer its shutdown.
 	synchronizationLogger := logging.RootLogger.Sublogger("synchronization")
 	synchronizationManager, err := synchronization.NewManager(synchronizationLogger)
@@ -105,7 +114,7 @@ func runMain(_ *cobra.Command, _ []string) error {
 	}
 	defer synchronizationManager.Shutdown()
 
-	host.SetStreamHandler("/mutagen/synchronization", func(stream network.Stream) {
+	host.SetStreamHandler(synchronizationlibp2p.SynchronizationProtocol, func(stream network.Stream) {
 		err := synchronizationremote.ServeEndpoint(synchronizationLogger, stream)
 		if err != nil {
 			synchronizationLogger.Errorf("synchronization terminated: %w", err)

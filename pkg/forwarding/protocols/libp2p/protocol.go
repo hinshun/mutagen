@@ -10,18 +10,22 @@ import (
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
+	"github.com/mutagen-io/mutagen/pkg/forwarding"
+	"github.com/mutagen-io/mutagen/pkg/forwarding/endpoint/local"
+	"github.com/mutagen-io/mutagen/pkg/forwarding/endpoint/remote"
 	"github.com/mutagen-io/mutagen/pkg/logging"
-	"github.com/mutagen-io/mutagen/pkg/synchronization"
-	"github.com/mutagen-io/mutagen/pkg/synchronization/endpoint/remote"
 	urlpkg "github.com/mutagen-io/mutagen/pkg/url"
 )
 
 var (
-	SynchronizationProtocol = protocol.ID("/mutagen/synchronization")
+	ForwardingProtocol = protocol.ID("/mutagen/forwarding")
 )
 
-// protocolHandler implements the synchronization.ProtocolHandler interface for
-// connecting to remote endpoints over libp2p.
+// protocolHandler implements the forwarding.ProtocolHandler interface for
+// connecting to remote endpoints over libp2p. It uses the agent infrastructure
+// over an libp2p transport.
 type protocolHandler struct{}
 
 // dialResult provides asynchronous agent dialing results.
@@ -32,20 +36,20 @@ type dialResult struct {
 	error error
 }
 
-// Connect connects to an libp2p endpoint.
-func (h *protocolHandler) Connect(
+// Connect connects to an Libp2p endpoint.
+func (p *protocolHandler) Connect(
 	ctx context.Context,
 	logger *logging.Logger,
 	url *urlpkg.URL,
 	prompter string,
 	session string,
-	version synchronization.Version,
-	configuration *synchronization.Configuration,
-	alpha bool,
-) (synchronization.Endpoint, error) {
+	version forwarding.Version,
+	configuration *forwarding.Configuration,
+	source bool,
+) (forwarding.Endpoint, error) {
 	// Verify that the URL is of the correct kind and protocol.
-	if url.Kind != urlpkg.Kind_Synchronization {
-		panic("non-synchronization URL dispatched to synchronization protocol handler")
+	if url.Kind != urlpkg.Kind_Forwarding {
+		panic("non-forwarding URL dispatched to forwarding protocol handler")
 	} else if url.Protocol != urlpkg.Protocol_Libp2p {
 		panic("non-libp2p URL dispatched to libp2p protocol handler")
 	}
@@ -56,6 +60,23 @@ func (h *protocolHandler) Connect(
 		return nil, errors.New("Libp2p URL contains environment variables")
 	} else if len(url.Parameters) > 0 {
 		return nil, errors.New("Libp2p URL contains internal parameters")
+	}
+
+	maddr, err := multiaddr.NewMultiaddr(url.Path)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse url path as multiaddr: %w", err)
+	}
+
+	proto, address, err := manet.DialArgs(maddr)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract network and address from url path: %w", err)
+	}
+
+	if len(url.Host) == 0 {
+		if source {
+			return local.NewListenerEndpoint(version, configuration, proto, address, true)
+		}
+		return local.NewDialerEndpoint(version, configuration, proto, address)
 	}
 
 	addrInfo, err := peer.AddrInfoFromString(url.Host)
@@ -76,16 +97,16 @@ func (h *protocolHandler) Connect(
 	}
 
 	ctx = network.WithUseTransient(ctx, "hole-punch")
-	stream, err := host.NewStream(ctx, addrInfo.ID, SynchronizationProtocol)
+	stream, err := host.NewStream(ctx, addrInfo.ID, ForwardingProtocol)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create libp2p %s stream: %w", SynchronizationProtocol, err)
+		return nil, fmt.Errorf("unable to create libp2p %s stream: %w", ForwardingProtocol, err)
 	}
 
-	// Create the endpoint client.
-	return remote.NewEndpoint(stream, url.Path, session, version, configuration, alpha)
+	// Create the endpoint.
+	return remote.NewEndpoint(stream, version, configuration, proto, address, source)
 }
 
 func init() {
-	// Register the libp2p protocol handler with the synchronization package.
-	synchronization.ProtocolHandlers[urlpkg.Protocol_Libp2p] = &protocolHandler{}
+	// Register the Libp2p protocol handler with the forwarding package.
+	forwarding.ProtocolHandlers[urlpkg.Protocol_Libp2p] = &protocolHandler{}
 }

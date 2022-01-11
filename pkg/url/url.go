@@ -78,7 +78,7 @@ func (u *URL) EnsureValid() error {
 				return errors.New("incorrect first path character")
 			}
 		}
-	} else if u.Kind == Kind_Forwarding {
+	} else if u.Kind == Kind_Forwarding && u.Protocol != Protocol_Libp2p {
 		// Parse the forwarding endpoint URL to ensure that it's valid.
 		protocol, address, err := forwarding.Parse(u.Path)
 		if err != nil {

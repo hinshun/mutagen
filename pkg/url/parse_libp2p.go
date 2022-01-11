@@ -18,11 +18,13 @@ func parseLibp2p(raw string, kind Kind) (*URL, error) {
 	if err != nil {
 		return nil, err
 	}
-	path := maddr.String()
 
-	var host string
-	raddr, last := multiaddr.SplitLast(maddr)
+	var (
+		host string
+		path string
+	)
 	if kind == Kind_Synchronization {
+		raddr, last := multiaddr.SplitLast(maddr)
 		if !last.Protocol().Path {
 			return nil, errors.New("last protocol must be a path protocol")
 		}
@@ -38,9 +40,20 @@ func parseLibp2p(raw string, kind Kind) (*URL, error) {
 		}
 		host = raddr.String()
 	} else if kind == Kind_Forwarding {
-		if last.Protocol().Path {
-			return nil, errors.New("last protocol must not be a path protocol")
+		maddrs := multiaddr.Split(maddr)
+
+		i := len(maddrs) - 1
+		for ; i >= 0; i-- {
+			protos := maddrs[i].Protocols()
+			if len(protos) > 0 && protos[0].Code == multiaddr.P_P2P {
+				break
+			}
 		}
+
+		if len(maddrs[:i+1]) > 0 {
+			host = multiaddr.Join(maddrs[:i+1]...).String()
+		}
+		path = multiaddr.Join(maddrs[i+1:]...).String()
 	} else {
 		panic("unhandled URL kind")
 	}
