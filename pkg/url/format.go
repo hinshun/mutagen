@@ -12,6 +12,8 @@ func (u *URL) Format(environmentPrefix string) string {
 		return u.formatSSH()
 	} else if u.Protocol == Protocol_Docker {
 		return u.formatDocker(environmentPrefix)
+	} else if u.Protocol == Protocol_Libp2p {
+		return u.formatLibp2p()
 	}
 	panic("unknown URL protocol")
 }
@@ -41,6 +43,11 @@ func (u *URL) formatSSH() string {
 
 	// Done.
 	return result
+}
+
+// formatLibp2p formats a libp2p URL.
+func (u *URL) formatLibp2p() string {
+	return u.Path
 }
 
 // invalidDockerURLFormat is the value returned by formatDocker when a URL is

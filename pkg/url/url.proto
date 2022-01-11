@@ -29,6 +29,9 @@ enum Protocol {
 
     // Docker indicates that the resource is inside a Docker container.
     Docker = 11;
+
+    // Libp2p indicates that the resource is accessible via libp2p protocols.
+    Libp2p = 12;
 }
 
 // URL represents a pointer to a resource. It should be considered immutable.

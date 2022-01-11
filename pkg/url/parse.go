@@ -28,6 +28,8 @@ func Parse(raw string, kind Kind, first bool) (*URL, error) {
 		return parseDocker(raw, kind, first)
 	} else if isSCPSSHURL(raw, kind) {
 		return parseSCPSSH(raw, kind)
+	} else if isLibp2pURL(raw) {
+		return parseLibp2p(raw, kind)
 	} else {
 		return parseLocal(raw, kind)
 	}

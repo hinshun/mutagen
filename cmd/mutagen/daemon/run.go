@@ -21,11 +21,16 @@ import (
 	promptingsvc "github.com/mutagen-io/mutagen/pkg/service/prompting"
 	synchronizationsvc "github.com/mutagen-io/mutagen/pkg/service/synchronization"
 	"github.com/mutagen-io/mutagen/pkg/synchronization"
+	synchronizationremote "github.com/mutagen-io/mutagen/pkg/synchronization/endpoint/remote"
+
+	libp2p "github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/network"
 
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/docker"
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/local"
 	_ "github.com/mutagen-io/mutagen/pkg/forwarding/protocols/ssh"
 	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/docker"
+	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/libp2p"
 	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/local"
 	_ "github.com/mutagen-io/mutagen/pkg/synchronization/protocols/ssh"
 )
@@ -45,19 +50,44 @@ func runMain(_ *cobra.Command, _ []string) error {
 	signalTermination := make(chan os.Signal, 1)
 	signal.Notify(signalTermination, cmd.TerminationSignals...)
 
+	host, err := libp2p.New(
+		libp2p.Defaults,
+		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"),
+		libp2p.EnableHolePunching(),
+		libp2p.EnableAutoRelay(),
+		libp2p.DefaultStaticRelays(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to start libp2p host: %w", err)
+	}
+
+	for _, maddr := range host.Addrs() {
+		p2pAddr := fmt.Sprintf("%s/p2p/%s", maddr.String(), host.ID())
+		logging.RootLogger.Infof("Libp2p swarm listening on %s", p2pAddr)
+	}
+
 	// Create a forwarding session manager and defer its shutdown.
-	forwardingManager, err := forwarding.NewManager(logging.RootLogger.Sublogger("forwarding"))
+	forwardingLogger := logging.RootLogger.Sublogger("forwarding")
+	forwardingManager, err := forwarding.NewManager(forwardingLogger)
 	if err != nil {
 		return fmt.Errorf("unable to create forwarding session manager: %w", err)
 	}
 	defer forwardingManager.Shutdown()
 
 	// Create a synchronization session manager and defer its shutdown.
-	synchronizationManager, err := synchronization.NewManager(logging.RootLogger.Sublogger("synchronization"))
+	synchronizationLogger := logging.RootLogger.Sublogger("synchronization")
+	synchronizationManager, err := synchronization.NewManager(synchronizationLogger)
 	if err != nil {
 		return fmt.Errorf("unable to create synchronization session manager: %w", err)
 	}
 	defer synchronizationManager.Shutdown()
+
+	host.SetStreamHandler("/mutagen/synchronization", func(stream network.Stream) {
+		err := synchronizationremote.ServeEndpoint(synchronizationLogger, stream)
+		if err != nil {
+			synchronizationLogger.Errorf("synchronization terminated: %w", err)
+		}
+	})
 
 	// Create the gRPC server and defer its stoppage. We use a hard stop rather
 	// than a graceful stop so that it doesn't hang on open requests.
