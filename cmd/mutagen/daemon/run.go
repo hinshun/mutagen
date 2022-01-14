@@ -18,6 +18,7 @@ import (
 	"github.com/mutagen-io/mutagen/pkg/grpcutil"
 	"github.com/mutagen-io/mutagen/pkg/ipc"
 	"github.com/mutagen-io/mutagen/pkg/logging"
+	"github.com/mutagen-io/mutagen/pkg/p2p"
 	daemonsvc "github.com/mutagen-io/mutagen/pkg/service/daemon"
 	forwardingsvc "github.com/mutagen-io/mutagen/pkg/service/forwarding"
 	promptingsvc "github.com/mutagen-io/mutagen/pkg/service/prompting"
@@ -25,7 +26,6 @@ import (
 	"github.com/mutagen-io/mutagen/pkg/synchronization"
 	synchronizationremote "github.com/mutagen-io/mutagen/pkg/synchronization/endpoint/remote"
 
-	libp2p "github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	circuitv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
@@ -55,30 +55,15 @@ func runMain(_ *cobra.Command, _ []string) error {
 	signalTermination := make(chan os.Signal, 1)
 	signal.Notify(signalTermination, cmd.TerminationSignals...)
 
-	host, err := libp2p.New(
-		libp2p.Defaults,
-		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"),
-		libp2p.EnableRelayService(),
-		libp2p.EnableHolePunching(),
-	)
+	relay, err := peer.AddrInfoFromString(p2p.RelayAddr)
 	if err != nil {
-		return fmt.Errorf("unable to start libp2p host: %w", err)
-	}
-
-	for _, maddr := range host.Addrs() {
-		p2pAddr := fmt.Sprintf("%s/p2p/%s", maddr.String(), host.ID())
-		logging.RootLogger.Infof("Libp2p swarm listening on %s", p2pAddr)
-	}
-
-	relay, err := peer.AddrInfoFromString("/ip4/128.199.6.92/tcp/4001/p2p/12D3KooWGDynerXsf3KeXAQAp4RUpQKkusYYEjMq918czPxUXCRX")
-	if err != nil {
-		return err
+		return fmt.Errorf("unable to parse relay addr: %w", err)
 	}
 
 	ctx := context.Background()
-	err = host.Connect(ctx, *relay)
+	host, err := p2p.New(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to connect to relay: %w", err)
+		return fmt.Errorf("unable to create p2p peer: %w", err)
 	}
 
 	rsvp, err := circuitv2.Reserve(ctx, host, *relay)

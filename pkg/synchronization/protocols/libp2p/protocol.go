@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 
-	libp2p "github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/mutagen-io/mutagen/pkg/logging"
+	"github.com/mutagen-io/mutagen/pkg/p2p"
 	"github.com/mutagen-io/mutagen/pkg/synchronization"
 	"github.com/mutagen-io/mutagen/pkg/synchronization/endpoint/remote"
 	urlpkg "github.com/mutagen-io/mutagen/pkg/url"
@@ -63,11 +63,9 @@ func (h *protocolHandler) Connect(
 		return nil, fmt.Errorf("unable to get addr info from url host: %w", err)
 	}
 
-	host, err := libp2p.New(libp2p.Defaults,
-		libp2p.EnableHolePunching(),
-	)
+	host, err := p2p.New(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create libp2p host: %w", err)
+		return nil, fmt.Errorf("unable to create p2p peer: %w", err)
 	}
 
 	err = host.Connect(ctx, *addrInfo)
